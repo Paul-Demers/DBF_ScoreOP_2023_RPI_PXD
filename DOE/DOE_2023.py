@@ -3,7 +3,7 @@ import openmdao.api as om
 import matplotlib.pyplot as plt
 
 import sys
-sys.path.insert(0, 'C:/Users/demerp3/Desktop/Folder/School/DBF/Year4/Code/PXD_RPI_DBF_ScoreOP')
+sys.path.insert(0, 'C:/Users/demerp3/Desktop/Folder/School/DBF/Year4/Code/DBF_ScoreOP_2023_RPI_PXD')
 import ScoreOP_2023 as op
 
 #%% Config
@@ -80,10 +80,8 @@ for j in range(len(score)):
     #if con01_vals[j]<0.0 or con02_vals[j]<0.0 or con03_vals[j]<0.0 or con1_vals[j]<0.0 or con2_vals[j]<0.0 or con3_vals[j]<0.0:
         #score[j]=np.nan
 
-# Below is a short script to see the path the design variables took to convergence
 
-#%% plot
-
+#%% Below is a short script to see the path the design variables took to convergence
 fig, (ax1, ax2, ax3) = plt.subplots(1, 3)
 fig.subplots_adjust(left=None, bottom=None, right=None, top=None, wspace=0.5, hspace=None)
 
@@ -99,18 +97,20 @@ ax3.plot(np.arange(len(span)), np.array(span))
 ax3.set(xlabel='Iterations', ylabel='Design Var: Wing Span', title='Optimization History')
 ax3.grid()
 
+
+#%% plot
 fig = plt.figure()
 ax = fig.add_subplot(111, projection='3d')
 
-#EP_grouped = [round(num[0]/500)*500 for num in EP]
-#antenna_grouped = [round(num[0]/5)*5 for num in antenna]
+EP_grouped = [round(num[0]/2)*2 for num in EP]
+antenna_grouped = [round(num[0]/10)*10 for num in antenna]
 
-p = ax.scatter(EP, antenna, span, cmap='jet', c=score)
+p = ax.scatter(EP, antenna_grouped, span, cmap='jet', c=score)
 fig.colorbar(p)
 ax.set_xlabel('ElecPack Weight (lb)')
 ax.set_ylabel('Antenna Length (in)')
 ax.set_zlabel('Wing Span (ft)')
 
-ax.view_init(20, 70)
+ax.view_init(20, 45)
 
 prob.cleanup()

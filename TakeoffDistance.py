@@ -1,15 +1,42 @@
 from math import pi, sqrt
 from scipy.integrate import solve_ivp, cumtrapz
 
+g = 32.2  # Acceleration due to gravity in ft/s^2
+rho = .00222*g  # Air density at sea level in slug/ft^3 to lb/ft3
 
-def takeoff_distance(W, b, AR, l_f, h_o, cL_max, C_T, v0=0, t_end=30, max_step=0.1):
+#%% Equation - Drag
+
+def calc_drag(W, b, AR, l_f, u, Takeoff=False, h_o=7, cL_max=1.5):
+    """ calc the drag
+    INPUTS: Weight [lb], wingspan [ft], aspect ratio, velocity [fps]
+            GE - Ground Effect; only relevant for takeoff
+            h_o - wing distance from ground [in]
+    """
+    S = b**2/AR
+    cL = W/((1/2)*rho*(u+0.001)**2*S) # cruise: L = W # u+0.01 to eliminate divide by 0 error
+    e = 1.78*(1-0.045*AR**0.68) - 0.64 # Oswald Efficiency Factor for Complete Airplane - Anderson eq. 6.25
+    #e = 0.8 # typically 0.6 for low-wing, 0.8 for high-wing - McCormick pg 175
+    
+    cD_parasite = 0.008/S + 0.0088 + rho/(S*l_f**2) + .0006336*b/l_f + .008*b/l_f
+    
+    cD_induced = cL**2/(pi*AR*e)
+    
+    if Takeoff==True:  
+        x_GE = 16*((h_o/12)/b)**2
+        cD_IGE_OGE = x_GE/(1+x_GE) # Drag coefficient ground effect ratio; only affects induced drag
+        cD_induced = cL_max**2/(pi*AR*e) * cD_IGE_OGE
+    
+    cD = cD_parasite + cD_induced
+    return cD
+
+#%% Equation - Takeoff Distance
+
+def takeoff_distance(W, b, AR, l_f, C_T, h_o=7, v0=0, cL_max=1.5, t_end=30, max_step=0.1):
     """ determine if thrust is sufficient for takeoff in x distance
-    INPUT:  W - weight [lb]
+    INPUTS: W - weight [lb]
             b - wingspan [ft]
             AR - aspect ratio []
             l_f - fuselage length [ft]
-            h_o - wing distance from ground [in]
-            cL_max - maximum coefficient of lift (elevators/flaps at max deflection)
             C_T - static thrust coefficient; thrust at 0 velocity [lb] **PHYSICALLY MEASURE THIS
             v0 - initial takeoff velocity; ground launch vs. hand launch [fps]
             t_end - range to search for takeoff velocity [s]
@@ -17,9 +44,7 @@ def takeoff_distance(W, b, AR, l_f, h_o, cL_max, C_T, v0=0, t_end=30, max_step=0
     OUTPUT: takeoff_distance - self explanatory [ft]
     CAN OUTPUT: takeoff time, takeoff velocity, plots
     """
-    #%% Define constants
-    g = 32.2  # Acceleration due to gravity in ft/s^2
-    rho = .00222*g  # Air density at sea level in slug/ft^3 to lb/ft3
+    # Define constants
     Sw = (b**2) / AR  # Wing area in ft^2
     f_to = Sw  # Flat Plate skin friction area in ft^2
     mu = .04  # Friction coefficient
@@ -32,18 +57,14 @@ def takeoff_distance(W, b, AR, l_f, h_o, cL_max, C_T, v0=0, t_end=30, max_step=0
     B_T = C_T * B_T_ex # ~= 0; Thrust coefficient B in N*s/m
     
     #%% Calculate useful parameters   
-    V_s = sqrt((2 * W) / (rho * Sw * cL_max)) # stall speed with flaps out
+    V_s = sqrt(W / ((1/2)*rho * Sw * cL_max)) # stall speed with flaps out
     V_lof = 1.1*V_s  # Lift off velocity in ft/s
+    T_min = mu*W + V_lof**2*W/(2*(2/3)*60*g) # minimum thrust [lb] required to take off at (2/3) of 60 [ft]
     
-    e = 1.78*(1-0.045*AR**0.68) - 0.64 # Oswald Efficiency Factor for Complete Airplane - Anderson eq. 6.25
-    GE = 16*((h_o/12)/b)**2
-    cD_IGE_OGE = GE/(1+GE) # Drag coefficient ground effect ratio; only affects induced drag
-    cD_induced = cL_max**2/(pi*AR*e) # wingtip vortices
-    cD_parasite = 0.008/Sw + 0.0088 + rho/(Sw*l_f**2) + .0006336*b/l_f + .008*b/l_f # skin friction
-    cD = cD_parasite + cD_induced*cD_IGE_OGE
+    cD = calc_drag(W, b, AR, l_f, 0, Takeoff=True, h_o=h_o)
 
     #%% Define coefficients for differential equation using the input parameters
-    A = A_T - (1/2)*rho*Sw*(cD_parasite + cD_induced*cD_IGE_OGE) + mu*(1/2)*rho*Sw*cL_max
+    A = A_T - (1/2)*rho*Sw*cD + mu*(1/2)*rho*Sw*cL_max
     B = B_T
     C = C_T - mu*W
     
@@ -94,8 +115,10 @@ def takeoff_distance(W, b, AR, l_f, h_o, cL_max, C_T, v0=0, t_end=30, max_step=0
 
     # raises an error if it didn't take off in time
     if takeoff_distance == -1:
-        raise ValueError(
-            f'Takeoff velocity ({V_lof}) was not reached within specified timeframe (t_end={t_end} seconds) or other error occured. Try raising t_end.')
+        raise ValueError(f'\nTakeoff Velocity {round(V_lof*100)/100} [fps] was not reached within t_end = {t_end} [s]'
+                         + f'\nMinimum Thrust required: {round(T_min*100)/100} [lb]')
+                         
+            
 
     # OTHER DEFINED OUTPUT VARIABLES IF NEEDED IN THE FUTURE
     #    takeoff_time = time of takeoff
@@ -113,18 +136,17 @@ def takeoff_distance(W, b, AR, l_f, h_o, cL_max, C_T, v0=0, t_end=30, max_step=0
         plt.grid()
         plt.show()
         
-        print('liftoff distance', round(takeoff_distance*100)/100, '[ft]')
-        print('liftoff velocity', round(V_lof*100)/100, '[fps]')
-        print('drag coefficient', round(cD*10000)/10000)
+        print('liftoff distance:\t', round(takeoff_distance*100)/100, '[ft]')
+        print('liftoff velocity:\t', round(V_lof*100)/100, '[fps]')
+        print("minimum thrust required:\t", round(T_min*100)/100, '[lb]')
+        print('drag coefficient:\t', round(cD*10000)/10000)
 
     return takeoff_distance
 
 if __name__ == "__main__":
-    W = 9.66 # lb
-    b = 1.6 # ft
+    W = 11 # lb
+    b = 3.5 # ft
     AR = 6.34 
     l_f = 4 # ft
-    h_o = 7 # in
-    cL_max = 1.5
-    C_T = 6 # lb
-    takeoff_distance(W, b, AR, l_f, h_o, cL_max, C_T)
+    C_T = 1.5 # lb
+    takeoff_distance(W, b, AR, l_f, C_T)
