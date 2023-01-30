@@ -14,7 +14,7 @@ M3 = 3
 Test = 3.5
 Score = 4
 
-TestMission = M3
+TestMission = M2
 
 
 #%% Library
@@ -27,18 +27,19 @@ grav = 32.2 # [ft/s2]
 rho = 0.00222*grav # [slug/ft3] to [lb/ft3]
 
 motor = Turnigy_Aerodrive_4240_with_13x8_prop
-T_max = motor[0] # thrust [lb] @ takeoff; static thrust - MEASURE THIS
-cL_max = 1.5 # arbitrary, takeoff
+T_max = motor[0] # thrust [lb] @ takeoff; static thrust - MEASURE THIS ASAP
 
-v0 = 0 # initial velocity; handlaunch vs normal takeoff
 TakeoffDistance = 60 # [ft]
 in_Xto = TakeoffDistance
+h_o = 7 # wing distance from ground [in]
+v0 = 0 # initial velocity; handlaunch vs normal takeoff
+cL_max = 1.5 # arbitrary maximum coefficient of lift (elevators/flaps at max deflection)
 
 lap_dist = 3500 # [ft]
 
 #%% Design Parameter Assumptions
 in_b = 2.5 # wingspan [ft]
-in_c = 6/12 # average chord [ft]
+in_c = 0.5 # chordlength [ft]
 in_AR = 6.0 # aspect ratio of wing; AR = b^2/S ; S = wing area
 in_l_f = 2.5 # fuselage length [ft]
 in_ARf = 8.0 # aspect ratio of fuselage; ARf = length/width ; width = height
@@ -116,7 +117,6 @@ class Drag(om.ExplicitComponent):
     def setup(self):
         #Inputs
         self.add_input('b', val=in_b)
-        self.add_input('c', val=in_c)
         self.add_input('AR', val=in_AR)
         self.add_input('l_f', val=in_l_f)
         self.add_input('W1', val=in_W)
@@ -150,24 +150,11 @@ class Drag(om.ExplicitComponent):
         u1 = inputs['u1']
         u2 = inputs['u2']
         u3 = inputs['u3']
-        
-        def calc_drag(W, u):
-            """ calculate the mf c_drag 
-            """
-            S = b**2/AR
-            cL = W/((1/2)*rho*(u+0.001)**2*S) # cruise: L = W # u+0.01 to eliminate divide by 0
-            e = 1.78*(1-0.045*AR**0.68) - 0.64 # Oswald Efficiency Factor for Complete Airplane - Anderson eq. 6.25
-            #e = 0.8 # typically 0.6 for low-wing, 0.8 for high-wing - McCormick pg 175
-            
-            cD_induced = cL**2/(pi*AR*e)
-            cD_parasite = 0.008/S + 0.0088 + rho/(S*l_f**2) + .0006336*b/l_f + .008*b/l_f
-            
-            cd = cD_parasite + cD_induced
-            return cd
 
-        outputs['cd1'] = calc_drag(W1, u1)
-        outputs['cd2'] = calc_drag(W2, u2)
-        outputs['cd3'] = calc_drag(W3, u3)
+
+        outputs['cd1'] = dbf.calc_drag(W1, b, AR, l_f, u1)
+        outputs['cd2'] = dbf.calc_drag(W2, b, AR, l_f, u2)
+        outputs['cd3'] = dbf.calc_drag(W3, b, AR, l_f, u3)
         
 #%% Equation - Velocity
 
@@ -256,7 +243,7 @@ class Takeoff(om.ExplicitComponent):
         W2 = inputs['W2']
         W3 = inputs['W3']
 
-        outputs['Xto'] = dbf.takeoff_distance(max(W2,W3), b, AR, l_f, h_o, cL_max, T_max, v0, 30, 0.1)
+        outputs['Xto'] = dbf.takeoff_distance(max(W2,W3), b, AR, l_f, T_max, h_o)
 
 
 #%% Equation - Time
@@ -343,7 +330,7 @@ class ScoreMDA(om.Group):
                             promotes_inputs=['b', 'AR', 'cd1', 'cd2', 'cd3', 'T1', 'T2', 'T3'],
                             promotes_outputs=['u1', 'u2', 'u3'])
         cycle.add_subsystem('d3', Drag(),
-                            promotes_inputs=['b', 'c', 'AR', 'l_f', 'W1', 'W2', 'W3', 'u1', 'u2', 'u3'],
+                            promotes_inputs=['b', 'AR', 'l_f', 'W1', 'W2', 'W3', 'u1', 'u2', 'u3'],
                             promotes_outputs=['cd1', 'cd2', 'cd3'])
         cycle.add_subsystem('d4', Takeoff(),
                             promotes_inputs=['b', 'AR', 'l_f', 'W2', 'W3'],
@@ -357,7 +344,6 @@ class ScoreMDA(om.Group):
         
         
         cycle.set_input_defaults('b', in_b)
-        cycle.set_input_defaults('c', in_c)
         cycle.set_input_defaults('AR', in_AR)
         cycle.set_input_defaults('l_f', in_l_f)
         cycle.set_input_defaults('ARf', in_ARf)
@@ -390,7 +376,7 @@ class ScoreMDA(om.Group):
         
         #RPI Score
         if TestMission == Score:
-            self.add_subsystem('obj_cmp', om.ExecComp('obj = (1 + 1+(EP*nLaps2)/(10*15) + 2+(l_a/tLap3) / (36/50) )**-1', EP=in_EP, l_a=in_l_a, nLaps2=in_nLaps, tLap3=in_tLap),
+            self.add_subsystem('obj_cmp', om.ExecComp('obj = (1 + 1+(EP*nLaps2)/(10*15) + 2+(l_a/tLap3) / (24/40) )**-1', EP=in_EP, l_a=in_l_a, nLaps2=in_nLaps, tLap3=in_tLap),
                            promotes=['EP', 'l_a', 'nLaps2', 'tLap3', 'obj'])
             
 
@@ -410,7 +396,7 @@ class ScoreMDA(om.Group):
         #self.add_subsystem('cl3', om.ExecComp('conCL3 = W3 / ((1/2)*rho*u3**2*((b**2)/AR))'), promotes=['conCL3', 'W3', 'u3', 'b', 'AR'])
         self.add_subsystem('Takeoff', om.ExecComp('con1 = 60-Xto'), promotes=['con1', 'Xto'])
         self.add_subsystem('Min_Payload', om.ExecComp('con2 = EP - 0.3*W2'), promotes=['con2', 'EP', 'W2'])
-        self.add_subsystem('Antenna', om.ExecComp('con3 = b*12 - l_a'), promotes=['con3', 'l_a', 'b'])
+        self.add_subsystem('Antenna', om.ExecComp('con3 = (b*12) - l_a'), promotes=['con3', 'l_a', 'b'])
 
 # %% Problem setup
 
@@ -442,7 +428,7 @@ prob.model.add_design_var('T1', lower=0.5, upper=T_max*0.7) # thrust
 prob.model.add_design_var('T2', lower=0.5, upper=T_max*0.7) # thrust
 prob.model.add_design_var('T3', lower=0.5, upper=T_max*0.7) # thrust
 prob.model.add_design_var('EP', lower=3.0, upper=10.0) # Elec Package lb
-prob.model.add_design_var('l_a', lower=2.0, upper=36.0) # length antenna in
+prob.model.add_design_var('l_a', lower=2.0, upper=24.0) # length antenna in
 
 
 prob.model.add_constraint('con01', lower=0.0) # Battery

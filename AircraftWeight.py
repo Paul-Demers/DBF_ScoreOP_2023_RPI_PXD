@@ -160,7 +160,7 @@ class DBFWeight:
         d_i = 0.602 # in
         A = pi*(d_o/2)**2 - pi*(d_i/2)**2
         vol_antenna = A*(length_antenna) # in3
-        mass_antenna = PVC_rho*vol_antenna # g
+        mass_antenna = PVC_rho*vol_antenna *2 # [g], *2 for counterweight
         
         payload_mass = mass_antenna + electronics_package/0.00220462
         return payload_mass # end calc_payload_mass
